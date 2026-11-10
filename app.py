@@ -30,7 +30,7 @@ import player
 import timeline
 
 APP_NAME = "冰与火之舞 · 自动演奏"
-APP_VER = "0.10.0"
+APP_VER = "0.10.1"
 GAME_DIRNAME = "A Dance of Fire and Ice"
 WORKSHOP_APPID = "977950"
 

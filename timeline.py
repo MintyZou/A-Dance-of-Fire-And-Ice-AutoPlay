@@ -5,7 +5,9 @@ SharpFAI 的 FloorTimingCalculator 与 adofaipy 的 getAnglesRelative；
 并用关卡 OGG 实际时长校验过）：
 
   * 行星匀速绕砖旋转，一拍(crotchet)转 180°，拍长 = 60 / BPM 秒
-  * 相对角度 rel = (prev - cur + 180) mod 360，归一化到 (0, 360]
+  * 相对角度 rel = (prev - cur + 180) mod 360，范围 [0, 360)；
+    恰好 0°（转面）按游戏判为绕满一圈 360°（2 拍），接近 0° 的微小角度
+    则保持原值（高难谱常用的 179.9°「伪转面」砖是近乎瞬时的击打）
   * 间隔拍数 = rel / 180；间隔秒数 = 拍数 * 60 / 有效BPM
   * 有效BPM = settings.bpm * pitch/100 * 该砖累计的 SetSpeed 倍率
   * Twirl 翻转旋转方向：等价为「以 a[F-1] 为轴镜像反射之后的绝对角度」
@@ -123,14 +125,20 @@ def _relative_angles(a: list[float]) -> tuple[list[float], list[int]]:
     """折叠 midspin 后计算相对角度，返回 (rel, keep)。
 
     keep[i] 是 rel[i] 对应的原始 angleData 下标。
-    ``(x - 1) % 360 + 1`` 把 0 度归到 360 度（一整圈 = 2 拍）。
+    相对角度取 ``(prev - cur + 180) % 360``，与游戏的行星行程一致：
+      * 恰好 0°（转面砖）游戏判为绕满一圈，按 360°（2 拍）算；
+      * 接近 0° 的微小角度保持原值 —— 高难谱常用 179.9° 之类的
+        「伪转面」砖制造近乎瞬时的击打，若把它归到 360° 会每砖多算 2 拍。
     """
     keep = [i for i, x in enumerate(a) if x != MIDSPIN]
     b = [a[i] for i in keep]
     rel: list[float] = []
     for idx, x in enumerate(b):
         prev = 0.0 if idx == 0 else b[idx - 1]
-        rel.append(float((prev - x + 180 - 1) % 360 + 1))
+        r = (prev - x + 180) % 360
+        if r < 1e-4 or r > 360 - 1e-4:
+            r = 360.0
+        rel.append(float(r))
     return rel, keep
 
 

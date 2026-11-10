@@ -26,6 +26,22 @@ REHOLD_GAP_S = 0.002
 # Multitap 砖的连按间隔：游戏只判定最后一按，且提前按会算到上一块砖，
 # 所以所有按下都排在该砖时刻之后，最后一下会比谱面晚 (taps-1)*间隔。
 MULTITAP_GAP_S = 0.035
+# 0.1°「伪转面」砖会把多块砖压到同一瞬间（间隔 <1ms）。游戏一次按下只推进
+# 一块砖，而亚毫秒内连发的 SendInput 会被系统/游戏合并成一次按下，同组后面的
+# 砖就漏判 miss。把同组击打拉开到约一帧，保证每次按下都被单独接收；本谱最大
+# 组 4 块，最后一下最多晚 48ms，仍在 Perfect 判定窗（234~250BPM 下 60~65ms）内。
+STACK_GAP_S = 0.016
+STACK_WINDOW_S = 0.005
+
+
+def _spread_stacked(times: list[float], speed_scale: float) -> None:
+    """把间隔过小的连续击打拉开，保证每次按键都被游戏单独接收。"""
+    gap = STACK_GAP_S * speed_scale
+    window = STACK_WINDOW_S * speed_scale
+    original = list(times)
+    for i in range(1, len(times)):
+        if 0 <= original[i] - original[i - 1] < window:
+            times[i] = max(original[i], times[i - 1] + gap)
 
 
 def build_schedule(hits, vk: int, *, press_s: float = 0.02,
@@ -34,6 +50,7 @@ def build_schedule(hits, vk: int, *, press_s: float = 0.02,
     base = offset_ms / 1000.0 + lead_in_s
     chosen = hits if limit is None else hits[:limit]
     times = [h.at_s * speed_scale + base for h in chosen]
+    _spread_stacked(times, speed_scale)
     events: list[Event] = []
     for i, (h, t) in enumerate(zip(chosen, times)):
         hold = float(getattr(h, "hold_s", 0.0) or 0.0) * speed_scale
