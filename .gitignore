@@ -1,0 +1,19 @@
+# 构建产物
+build/
+dist/
+*.spec
+selftest.txt
+
+# 编辑器 / 系统
+.idea/
+.vscode/
+*.log
+Thumbs.db
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# 本机配置（含本机谱面路径，不进仓库）
+config.json
