@@ -3,9 +3,11 @@
   ← → / 滚轮 / 点击   切换封面（只切，不读谱）
   左键 / 回车         载入当前封面（读谱 + 算时间轴）
   F1 / F2             开始 / 停止（全局热键，切到游戏窗口后按）
+  顶部按钮            在「社区谱（创意工坊）」与「官方谱（游戏内置）」间切换
 
 启动时自动找到《冰与火之舞》的创意工坊目录（也可以写在 config.json 的
 workshop_dir 里），用每张谱自己的 `previewImage` 当封面。
+官方谱则从游戏安装目录的 resources.assets 里提取，缓存到程序旁的 official/。
 """
 from __future__ import annotations
 
@@ -25,12 +27,13 @@ from tkinter import filedialog
 from PIL import Image, ImageOps, ImageTk
 
 import input_win
+import official
 import parse
 import player
 import timeline
 
 APP_NAME = "冰与火之舞 · 自动演奏"
-APP_VER = "0.10.1"
+APP_VER = "0.20.1"
 GAME_DIRNAME = "A Dance of Fire and Ice"
 WORKSHOP_APPID = "977950"
 
@@ -62,28 +65,38 @@ DEFAULT_CFG = {
     "lead_in_s": 0.0,
     "press_s": 0.02,
     "pause_taps": 0,
+    "chart_source": "community",
 }
 
 HELP_TEXT = """【这是什么】
 
 《冰与火之舞》(A Dance of Fire and Ice) 的单机自动演奏器。
-它读取创意工坊里下载好的 .adofai 谱面，按谱面的击打时间轴把按键
-送进游戏，用来自娱自乐地"看谱面本身"。
+它读取 .adofai 谱面，按谱面的击打时间轴把按键送进游戏，
+用来自娱自乐地"看谱面本身"。谱面有两个来源，用程序顶部按钮切换：
+
+  * 社区谱：Steam 创意工坊里下载好的谱面。
+  * 官方谱：游戏内置关卡，从本机游戏安装目录自动提取。
 
 它不读内存、不改游戏文件、不联网、不注入 DLL —— 只是模拟键盘。
+官方谱只是「读取」本机游戏文件并缓存到程序旁边，不会写回游戏。
 
 
 【第一次使用】
 
-1. 先在 Steam 订阅并下载好谱面（创意工坊），并确保游戏能正常打开它。
-2. 打开本程序，它会自动找到
-   .../steamapps/workshop/content/977950/ 下的谱面。
-   如果没找到，点「选择 .adofai」手动选一个 main.adofai。
-3. 用 ← → 或滚轮把想打的封面移到正中间。
-4. 左键点一下封面（或按回车）载入 —— 这时候才会读谱、算时间轴。
+1. 想打社区谱：先在 Steam 订阅并下载好谱面（创意工坊）。
+   想打官方谱：确保已安装《冰与火之舞》，程序会自动提取内置关卡。
+2. 打开本程序，用顶部按钮在「社区谱（创意工坊）」和
+   「官方谱（游戏内置）」之间切换。首次切到官方谱会扫描游戏目录的
+   resources.assets 提取谱面（约几秒），结果缓存在程序旁的 official/
+   文件夹，之后再切就直接读缓存。注意：部分官方 X 关（1-X、2-X、8-X
+   等）本机拿不到谱面，暂不可用；详见文末【已知限制】。
+3. 社区谱会自动找 .../steamapps/workshop/content/977950/ 下的谱面；
+   没找到就点「选择 .adofai」手动选一个 main.adofai。
+4. 用 ← → 或滚轮把想打的封面移到正中间。
+5. 左键点一下封面（或按回车）载入 —— 这时候才会读谱、算时间轴。
    状态栏变成「待命 · F1 开始」才算准备好。
-5. 在游戏里选好同一张谱、进入关卡，等倒计时/加载结束。
-6. 让游戏窗口保持前台，然后按 F1。
+6. 在游戏里选好同一张谱、进入关卡，等倒计时/加载结束。
+7. 让游戏窗口保持前台，然后按 F1。
 
 
 【怎么开始演奏（重点，很多人卡在这里）】
@@ -113,6 +126,7 @@ HELP_TEXT = """【这是什么】
 
 【按键】
 
+  顶部按钮      切换「社区谱」/「官方谱」两个谱源
   ← →          上一张 / 下一张封面
   Home / End   第一张 / 最后一张
   滚轮         上下滚动切换
@@ -143,7 +157,20 @@ F1/F2 是全局物理按键检测，不需要本窗口有焦点。F2 由独立�
 
   * 含 FreeRoam（自由移动）的段落需要方向键走位，脚本无法通过，
     载入时会在日志里提示。
-  * 官方内置谱面（不是创意工坊谱）暂不支持。
+  * 官方谱不是全都能打。非 X 关（如 1-1、2-3）全部可用；X 关里只有
+    Files 型世界的正常版可用（3-X、5-X、AR-X、XS-X、XI-X、CI-X、
+    CE-X、CE-TX、EMOMOMO 等）。Mixed 型世界（1/2/4/6/7/8/9/10/11/12 等）
+    的 X 关，游戏是从预构建场景而不是 resources.assets 加载的，本机
+    拿不到完整谱面，所以 1-X、2-X、4-X、6-X、7-X、8-X、9-X、10-X、
+    11-X、12-X、B-X、ML-X、MN-X、RJ-X… 等暂不可自动演奏。
+    想打这些关，需要外部 .adofai：创意工坊里的官方关副本，或「选择
+    .adofai」手动载入（官方关卡本身不能在游戏编辑器里另存导出）。
+  * 官方谱里的「【变体】」谱（1J-X ~ 6J-X、BJ-X，共 7 张）是愚人节 /
+    加长 / 被诅咒版，与游戏内同名的正常关卡不是同一份谱：前半段相同、
+    中途插入段落，实机会从插入点开始偏半拍。它们已排在列表末尾并标注，
+    请勿当成正常关卡选；要打变体请在游戏里选对应的 J 关卡。
+  * 官方谱提取自本机游戏目录的 resources.assets，没有封面图，程序会
+    按曲名生成占位封面。
   * 长按砖（Hold）的松手时机、带 3-2-1 倒数的 Pause 段，
     极端谱面下可能需要微调 offset。
 
@@ -159,6 +186,8 @@ F1/F2 是全局物理按键检测，不需要本窗口有焦点。F2 由独立�
 4. 本工具按"现状"提供，不附带任何明示或暗示的担保；作者不对
    使用本工具造成的任何直接或间接损失负责。
 5. 若你不接受以上条款，请不要使用本程序。
+6. 官方谱仅从使用者本机的游戏安装目录读取并缓存在本地；本程序与
+   本仓库不内置、不分发任何官方谱面或音频文件。
 """
 
 
@@ -225,6 +254,17 @@ def find_workshop_dir() -> Path | None:
     return None
 
 
+def find_game_data_dir() -> Path | None:
+    """找游戏安装目录里含 resources.assets 的 *_Data 文件夹。"""
+    data_name = f"{GAME_DIRNAME}_Data"
+    for steam in _steam_roots():
+        for lib in _library_dirs(steam):
+            d = lib / "steamapps" / "common" / GAME_DIRNAME / data_name
+            if (d / "resources.assets").is_file():
+                return d
+    return None
+
+
 # --------------------------------------------------------------- 谱面扫描
 @dataclass
 class Chart:
@@ -234,6 +274,9 @@ class Chart:
     bpm: float
     tiles: int
     cover: Path | None
+    source: str = "workshop"
+    variant: bool = False
+    song_filename: str = ""
 
     @property
     def folder(self) -> str:
@@ -251,6 +294,12 @@ def _norm(p) -> str:
 def clean_title(s: str) -> str:
     t = _TAG.sub("", s or "")
     return re.sub(r"\s+", " ", t).strip()
+
+
+def _natural_key(s: str):
+    """自然排序：'2-X' < '10-5'；纯字母标题排在数字后面。"""
+    return tuple((0, int(t)) if t.isdigit() else (1, t.lower())
+                 for t in re.split(r"(\d+)", s))
 
 
 def _find_cover(main: Path, preview: str) -> Path | None:
@@ -275,7 +324,7 @@ def _find_cover(main: Path, preview: str) -> Path | None:
     return best
 
 
-def scan_charts(root: Path) -> list[Chart]:
+def scan_charts(root: Path, source: str = "workshop") -> list[Chart]:
     """扫创意工坊目录，读每张谱自己的 song/artist/bpm/previewImage。"""
     out: list[Chart] = []
     if not root.is_dir():
@@ -295,6 +344,7 @@ def scan_charts(root: Path) -> list[Chart]:
             bpm=float(s.get("bpm", 0) or 0),
             tiles=tiles,
             cover=_find_cover(main, str(s.get("previewImage") or "")),
+            source=source,
         ))
     out.sort(key=lambda c: c.title.lower())
     return out
@@ -427,6 +477,23 @@ class CoverFlow(tk.Canvas):
         except Exception:
             pass
         self.after(12, self._pump)
+
+    def set_charts(self, charts: list[Chart]) -> None:
+        """换一整套谱面（切换谱源时清空封面缓存与 canvas item）。"""
+        self.charts = charts
+        self._base.clear()
+        self._cache.clear()
+        self._queue.clear()
+        for it in self._items.values():
+            for item in it.values():
+                if item:
+                    self.delete(item)
+        self._items.clear()
+        self.cur = self.target = 0.0
+        self.loaded = -1
+        self._draw()
+        if charts:
+            self.preload(0, 5)
 
     # ---------------------------------------------------------------- 交互
     @property
@@ -575,25 +642,18 @@ class App:
         self.root.bind("<Configure>", self._on_resize)
 
         self.ws = self._workshop_path()
-        self.charts = scan_charts(self.ws) if self.ws else []
-        self.flow.charts = self.charts
-        if self.charts:
-            start = 0
-            last = self.cfg.get("level", "")
-            for k, c in enumerate(self.charts):
-                if last and _norm(c.path) == _norm(last):
-                    start = k
-                    break
-            self.flow.cur = self.flow.target = float(start)
-            self.select(start)
-            if last and _norm(self.charts[start].path) == _norm(last):
-                self.arm(start)
-        else:
-            self.flow._draw()
-            self.log_line("没找到创意工坊目录，可用「选择 .adofai」手动选谱面")
+        self.ws_charts = scan_charts(self.ws, "workshop") if self.ws else []
+        self._official_cache = ROOT / "official"
+        self.off_charts = self._charts_from_meta(official.load_cache(self._official_cache))
+        self.source = self.cfg.get("chart_source", "community")
+        if self.source not in ("community", "official"):
+            self.source = "community"
+        self._extracting = False
+        self._official_attempted = False
+        self._variant_noted = False
+        self._apply_source(initial=True)
         self.flow.start()
-        self.flow.preload(self.flow.index, 5)
-        self.log_line("← → 选曲 · 左键/回车 载入 · F1 开始 · F2 停止 · 右上「使用说明」")
+        self.log_line("← → 选曲 · 左键/回车 载入 · F1 开始 · F2 停止 · 顶部切换社区谱/官方谱")
 
         threading.Thread(target=self._worker, daemon=True).start()
 
@@ -609,6 +669,121 @@ class App:
             return Path(cfg_dir)
         return find_workshop_dir()
 
+    # ------------------------------------------------------------- 谱源切换
+    def _charts_from_meta(self, meta: list[dict]) -> list[Chart]:
+        """把 official/meta.json 还原成 Chart 列表。"""
+        out: list[Chart] = []
+        for m in meta:
+            path = self._official_cache / m["file"]
+            cover = self._official_cache / m["cover"] if m.get("cover") else None
+            out.append(Chart(
+                path=path,
+                title=m.get("title") or path.stem,
+                artist=m.get("artist", ""),
+                bpm=float(m.get("bpm", 0) or 0),
+                tiles=int(m.get("tiles", 0) or 0),
+                cover=cover if cover and cover.is_file() else None,
+                source="official",
+                variant=bool(m.get("variant", False)),
+                song_filename=m.get("song_filename", ""),
+            ))
+        # 变体谱排到末尾，避免和正常关卡混在一起被误选
+        out.sort(key=lambda c: (c.variant, _natural_key(c.title)))
+        return out
+
+    def _apply_source(self, initial: bool = False) -> None:
+        """把当前谱源的谱面装进封面流，并恢复上次选中的那张。"""
+        charts = self.off_charts if self.source == "official" else self.ws_charts
+        self.charts = charts
+        self.flow.set_charts(charts)
+        self._update_source_buttons()
+        self.src_count_var.set(f"共 {len(charts)} 张")
+        if self.source == "official" and not self._variant_noted:
+            nv = sum(1 for c in charts if c.variant)
+            if nv:
+                self._variant_noted = True
+                self.log_line(
+                    f"官方谱含 {nv} 张变体谱（愚人节/加长版，与游戏内同名关卡不同，"
+                    "已排在列表末尾并标注；打正常关卡请勿选它们）")
+        if charts:
+            start = 0
+            last = self.cfg.get("level", "")
+            for k, c in enumerate(charts):
+                if last and _norm(c.path) == _norm(last):
+                    start = k
+                    break
+            self.flow.cur = self.flow.target = float(start)
+            self.flow._draw()
+            self.select(start)
+            if initial and last and _norm(charts[start].path) == _norm(last):
+                self.arm(start)
+        else:
+            # 谱源清空时一并清掉上一谱源已载入的时间轴，避免误按 F1 放错谱
+            self.tl = None
+            self.events = []
+            self._loaded = ""
+            self._set_text(self.info, "")
+            self.title_var.set("")
+            self.meta_var.set("")
+            if self.source == "official" and not self._extracting:
+                self._ensure_official()
+            elif self.source == "community":
+                self.log_line("没找到创意工坊目录，可用「选择 .adofai」手动选谱面")
+                self.q.put(("state", "待命 · 选择谱面"))
+
+    def set_source(self, source: str) -> None:
+        if source not in ("community", "official") or source == self.source:
+            return
+        self.source = source
+        self.cfg["chart_source"] = source
+        self._save_cfg()
+        self._apply_source()
+
+    def _update_source_buttons(self) -> None:
+        for src, btn in (("community", self.src_community_btn),
+                         ("official", self.src_official_btn)):
+            active = self.source == src
+            btn.configure(bg=ACCENT if active else ENTRY_BG,
+                          fg="#10131a" if active else FG)
+
+    def _ensure_official(self) -> None:
+        """首次切到官方谱时，从游戏目录后台提取并缓存。"""
+        if self.off_charts or self._extracting or self._official_attempted:
+            return
+        self._official_attempted = True
+        data_dir = find_game_data_dir()
+        if data_dir is None:
+            self.log_line("未检测到游戏安装目录（resources.assets），官方谱暂不可用")
+            self.q.put(("state", "官方谱不可用 · 未找到游戏目录"))
+            return
+        self._extracting = True
+        self.q.put(("state", "正在提取官方谱面 ..."))
+        self.log_line("首次使用官方谱：正在从游戏安装目录提取（约几秒）...")
+        threading.Thread(target=self._extract_worker, args=(data_dir,),
+                         daemon=True).start()
+
+    def _extract_worker(self, data_dir: Path) -> None:
+        try:
+            meta = official.extract(data_dir / "resources.assets", self._official_cache)
+            charts = self._charts_from_meta(meta)
+            msg = f"官方谱提取完成：{len(charts)} 张（缓存在 {self._official_cache}）"
+        except Exception as e:
+            charts = []
+            msg = f"官方谱提取失败：{e}"
+        # Tk 不是线程安全的：结果走队列，由主线程的 _drain 处理
+        self.q.put(("official_ready", (charts, msg)))
+
+    def _on_official_ready(self, charts: list[Chart], msg: str) -> None:
+        self._extracting = False
+        self.off_charts = charts
+        self.log_line(msg)
+        if self.source == "official":
+            self._apply_source()
+            if not charts:
+                self.q.put(("state", "官方谱不可用 · 见日志"))
+        else:
+            self._update_source_buttons()
+
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
         f = tk.Frame(self.root, bg=BG, padx=10, pady=8)
@@ -616,6 +791,26 @@ class App:
 
         bottom = tk.Frame(f, bg=BG)
         bottom.pack(side="bottom", fill="x")
+
+        topbar = tk.Frame(f, bg=BG)
+        topbar.pack(side="top", fill="x", pady=(0, 6))
+        tk.Label(topbar, text="谱源", bg=BG, fg=DIM, font=(FONT, 9)).pack(
+            side="left", padx=(0, 8))
+        btn_kw = dict(relief="flat", padx=12, font=(FONT, 9), bd=0)
+        self.src_community_btn = tk.Button(
+            topbar, text="社区谱（创意工坊）",
+            command=lambda: self.set_source("community"),
+            bg=ENTRY_BG, fg=FG, activebackground="#2a2f3a", **btn_kw)
+        self.src_community_btn.pack(side="left", padx=(0, 6))
+        self.src_official_btn = tk.Button(
+            topbar, text="官方谱（游戏内置）",
+            command=lambda: self.set_source("official"),
+            bg=ENTRY_BG, fg=FG, activebackground="#2a2f3a", **btn_kw)
+        self.src_official_btn.pack(side="left")
+        self.src_count_var = tk.StringVar(value="")
+        tk.Label(topbar, textvariable=self.src_count_var, bg=BG, fg=DIM,
+                 font=(FONT, 9)).pack(side="right")
+
         self.flow = CoverFlow(f, [], self.select, self.arm)
         self.flow.pack(side="top", fill="both", expand=True)
 
@@ -748,6 +943,9 @@ class App:
                 kind, payload = self.q.get_nowait()
                 if kind == "state":
                     self.state_var.set(payload)
+                elif kind == "official_ready":
+                    charts, msg = payload
+                    self._on_official_ready(charts, msg)
                 else:
                     self._append_log(payload)
         except queue.Empty:
@@ -779,8 +977,13 @@ class App:
         c = self.charts[i]
         self.flow.preload(i, 4)
         self.title_var.set(c.title)
+        src = "官方内置" if c.source == "official" else f"工坊 {c.folder}"
+        if c.variant:
+            src += " · 变体谱（与游戏内同名关卡不同）"
+        if c.song_filename:
+            src += f" · {c.song_filename}"
         self.meta_var.set(f"{c.artist or '—'}   ·   {c.bpm:g} BPM   ·   "
-                          f"{c.tiles} 砖   ·   工坊 {c.folder}")
+                          f"{c.tiles} 砖   ·   {src}")
         if not self._loaded or _norm(c.path) != _norm(self._loaded):
             # 还没载入这张：清掉上一张的时间轴，避免误按 F1 放错谱
             self.tl = None
@@ -939,12 +1142,15 @@ def selftest() -> None:
             n_ev = len(player.build_schedule(tl.hits, input_win.to_vk(cfg["key"]),
                                              press_s=float(cfg.get("press_s", 0.02))))
         icon = resource("assets/icon.ico").is_file()
+        official_n = len(official.load_cache(ROOT / "official"))
+        game_data = 1 if find_game_data_dir() else 0
         win, txt = open_help(root)
         root.update_idletasks()
         help_len = len(txt.get("1.0", "end").strip())
         win.destroy()
         root.destroy()
-        result = (f"OK  charts={len(charts)}  cover={ok_cover}  icon={icon}  "
+        result = (f"OK  charts={len(charts)}  official={official_n}  "
+                  f"game_data={game_data}  cover={ok_cover}  icon={icon}  "
                   f"help={help_len}  hits={n_hits}  events={n_ev}  "
                   f"hotkeys={cfg.get('start_hotkey')}/{cfg.get('stop_hotkey')}")
     except Exception as e:
