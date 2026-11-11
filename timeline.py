@@ -25,6 +25,8 @@ SharpFAI 的 FloorTimingCalculator 与 adofaipy 的 getAnglesRelative；
     所以脚本在同一块砖上连按，只有最后一按被计时。
   * AutoPlayTiles（自动砖）：事件生效后该段砖由游戏自己击打，脚本不该按键，
     这些砖直接从 hits 里剔除。
+  * active=false 的事件被编辑器禁用，游戏 ApplyEventsToFloors 不会挂到砖上，
+    这里一律忽略（官方谱 CE-X / CE-1 里就有 5 个被禁用的 Hold）。
 
 注意：hits[i].at_s 以「第一次击打」为 0 点，即自动演奏脚本在第一次击打时
 启动即可；关卡开头的前奏（rel[0]）单独放在 lead_in_s，供校准时参考。
@@ -230,9 +232,14 @@ def _hold_events(a: list[float], actions: list[dict],
         f = int(ev.get("floor", 0))
         if f < 0 or f >= n or f in midspin_tiles:
             continue
+        # 游戏：holdLength = (有下一砖 && duration >= 0) ? duration : -1，
+        # -1 表示无效长按（不成长按砖），duration=0 仍然是长按砖。
+        dur = int(float(ev.get("duration", 0)))
+        if dur < 0:
+            continue
         count += 1
         hold_floors.add(f)
-        beats = int(float(ev.get("duration", 0))) * 2
+        beats = dur * 2
         if beats <= 0:
             continue
         beats_total += beats
@@ -311,8 +318,13 @@ def expand_repeat_events(actions: list[dict]) -> tuple[list[dict], list[str]]:
     （num=0 就是原事件本身）。Beat 型的重复靠 angleOffset 细分、只对带
     angleOffset 的 SetSpeed 有意义，这里不展开并提示。
 
+    同时在这里统一剔除 `active: false` 的事件：游戏 `ApplyEventsToFloors`
+    只把 `levelEvent.active` 为真的事件挂到砖上，被禁用的事件（编辑器里
+    关掉但没删，官方谱里有 5 个 Hold、11 个 RepeatEvents）在实机**不生效**。
+
     返回 (展开后的事件列表, 提示信息)。
     """
+    actions = [ev for ev in actions if ev.get("active", True) is not False]
     repeats: dict[int, dict[str, tuple[int, float, int]]] = {}
     for ev in actions:
         if ev.get("eventType") != "RepeatEvents":
